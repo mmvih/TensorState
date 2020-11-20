@@ -168,7 +168,7 @@ print('Finished in {:.3f}s!'.format(time.time() - start))
 
 
 
-# Getting the filter values
+'''Getting the filter values '''
 kernel_vals = {}
 for layer in model_after.get_weights(): # model_after and model_before are the same in this situation
     # layer = layer.squeeze()
@@ -205,7 +205,7 @@ micro_states = [[], []]
 max_entropy = [[], []]
 numoflayers = 0
 
-''' This can be simplifed if I were to use 'both' in model attachments, but I already have this so I never updated. '''
+''' This can be simplifed if I were to use 'both' in model methods, but I already have this so I never updated. '''
 print()
 print('Getting the number of states in before each layer...')
 for layer in efficiency_model_before.efficiency_layers:

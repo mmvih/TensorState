@@ -157,7 +157,11 @@ model_after = tf.keras.models.load_model(str(Path('.').joinpath('seq').joinpath(
 model_before = tf.keras.models.load_model(str(Path('.').joinpath('seq').joinpath('model.h5')), compile=True)
 efficiency_model_after = ts.build_efficiency_model(model=model_after,attach_to=['InputLayer','MaxPooling2D','Conv2D','Dense'],method='after', storage_path='./after/')
 efficiency_model_before = ts.build_efficiency_model(model=model_before,attach_to=['InputLayer','MaxPooling2D','Conv2D','Dense'],method='before', storage_path='./before/')
+# for layer in efficiency_model.efficiency_layers:
+#     print("Layer", layer)
+#     print("State Counts:", layer.state_count)
 
+# Collect the states for each layer
 print()
 print('Running model predictions to capture states...')
 start = time.time()
@@ -166,32 +170,141 @@ predictions_before = efficiency_model_before.predict(test_images,batch_size=200)
 print('Finished in {:.3f}s!'.format(time.time() - start))
 
 
+# alpha_vals = range(0, 10000)
 
-
-'''Getting the filter values '''
 kernel_vals = {}
-for layer in model_after.get_weights(): # model_after and model_before are the same in this situation
-    # layer = layer.squeeze()
-    n_rows = layer.shape[0]
-    n_cols = layer.shape[1]
-    n_depths = layer.shape[2]
-    n_neurons = layer.shape[3]
-    for row in range(n_rows):
-        for col in range(n_cols):
-            for depth in range(n_depths):
-                for neuron in range(n_neurons):
-                    if row == 0 and col ==0:
-                        kernel_vals['Filter ' + str(neuron + 1)] = []
-                    kernel_vals['Filter ' + str(neuron + 1)].append(layer[row][col][depth][neuron])
-                    # print("Neuron", neuron+1, "(Row, Col)", row+1, col+1, ":", layer[row][col][depth][neuron])
-                    
-                # break
-    i = 0
-    for item in kernel_vals:
-        print(i + 1, kernel_vals[item])
-        i = i + 1
-        print("")
+for layer in model_after.get_weights():
+    if len(layer.shape) > 1:
+        n_rows = layer.shape[0]
+        n_cols = layer.shape[1]
+        n_depths = layer.shape[2]
+        n_neurons = layer.shape[3]
+        if n_neurons == 20:
+            for row in range(n_rows):
+                for col in range(n_cols):
+                    for depth in range(n_depths):
+                        for neuron in range(n_neurons):
+                            if row == 0 and col == 0:
+                                kernel_vals['Filter ' + str(neuron + 1)] = []
+                            kernel_vals['Filter ' + str(neuron + 1)].append(layer[row][col][depth][neuron])
     break
+
+windowsize_r = 5
+windowsize_c = 5
+
+truevals = 0
+falsevals = 0
+
+inputtruevals = 0
+inputfalsevals = 0
+
+test_images = test_images.squeeze()
+print(test_images.shape)
+
+outputtruefalse_series = {}
+inputtruefalse_series = {}
+
+inputcount = 0
+outputcount = 0
+
+firstkey = list(kernel_vals.keys())[0]
+for r in range(0,test_images.shape[0] - windowsize_r + 1, 1):
+    for c in range(0,test_images.shape[1] - windowsize_c + 1, 1):
+        inputtruefalsekey = ""
+        input = test_images[r:r+windowsize_r,c:c+windowsize_c]
+        # if not inputtruefalse_series:
+        # for inputval in input.flatten():
+        #     inputtruefalsekey = ""
+        #     if inputval > 0 or (inputval > -0):
+        #         inputtruevals = inputtruevals + 1
+        #         inputtruefalsekey = inputtruefalsekey + "1"
+        #     else:
+        #         inputfalsevals = inputfalsevals + 1
+        #         inputtruefalsekey = inputtruefalsekey + "0"
+        #     if inputtruefalsekey in inputtruefalse_series.keys():
+        #         inputtruefalse_series[inputtruefalsekey] = inputtruefalse_series[inputtruefalsekey] + 1
+        #     else:
+        #         inputtruefalse_series[inputtruefalsekey] = 1
+        truefalsekey = ""
+        filtercount = 1
+        for filter in kernel_vals:
+            if filter == firstkey:
+                inputstring = ""
+                for inputval in input.flatten():
+                    inputtruefalsekey = ""
+                    if inputval > 0 or (inputval > -0):
+                        inputtruevals = inputtruevals + 1
+                        inputtruefalsekey = inputtruefalsekey + "1"
+                        inputstring = inputstring + "1"
+                    else:
+                        inputfalsevals = inputfalsevals + 1
+                        inputtruefalsekey = inputtruefalsekey + "0"
+                        inputstring = inputstring + "0"
+                    if inputtruefalsekey in inputtruefalse_series.keys():
+                        inputtruefalse_series[inputtruefalsekey] = inputtruefalse_series[inputtruefalsekey] + 1
+                    else:
+                        inputtruefalse_series[inputtruefalsekey] = 1
+                    inputcount = inputcount + 1
+                print("Entire Input Simplified (", r+1, c+1, ")", inputstring, " -- sum: ", np.sum(input))
+            
+            filter = np.reshape(kernel_vals[filter], (5,5), order='C')
+            output = np.multiply(input, filter).astype("float64")
+            outputsum = np.sum(output)
+            if (outputsum > int(0)) or (outputsum > int(-0)):
+                truevals = truevals + 1
+                truefalsekey = truefalsekey + "1"
+            else:
+                falsevals = falsevals + 1
+                truefalsekey = truefalsekey + "0"
+            print(filtercount, " Output: ", truefalsekey[-1])
+            filtercount = filtercount + 1
+            # with open("firstlayer.txt", "a") as filelayer:
+            #     filelayer.write(str(output))
+            #     filelayer.write("OUTPUT SUM: {}".format(outputsum))
+            #     filelayer.write(" \n")
+            # filelayer.close()
+            
+        if truefalsekey in outputtruefalse_series.keys():
+            outputtruefalse_series[truefalsekey] = outputtruefalse_series[truefalsekey] + 1
+        else:
+            outputtruefalse_series[truefalsekey] = 1
+        outputcount = outputcount + 1
+        
+
+print("INPUT")
+print(len(inputtruefalse_series))
+print(inputcount)
+print(inputtruefalse_series)
+print("")
+print("OUTPUT")
+print(len(outputtruefalse_series))
+print(outputcount)
+print(outputtruefalse_series)
+
+print()
+                
+    # hist = np.histogram(window,bins=grey_levels)
+# print(model_after.get_config())
+# for layer in model_after.layers:
+# #     # if layer.name == "input":
+# #     #     continue
+# #     print(layer)
+# #     print(layer.name)
+# #     # conv1 is 5x5x20
+#     print(layer.weights)
+# #     # filters = np.asarray(filters)
+# #     # print(len(filters.flatten())) 
+#     break
+
+# for layer in model_after.layers:
+#     # if layer.name == "input":
+#     #     continue
+#     print(layer)
+#     print(layer.name)
+#     filters, biases = layer.get_weights()
+#     print(filters)
+#     break
+
 
 
 layerinfo = []
@@ -205,7 +318,6 @@ micro_states = [[], []]
 max_entropy = [[], []]
 numoflayers = 0
 
-''' This can be simplifed if I were to use 'both' in model methods, but I already have this so I never updated. '''
 print()
 print('Getting the number of states in before each layer...')
 for layer in efficiency_model_before.efficiency_layers:
@@ -235,7 +347,7 @@ for layer in efficiency_model_after.efficiency_layers:
     uniq_states[-1].append(len(state_freqs[1][-1]))
     micro_states[1].append(state_freqs[1][-1].sum())
 
-'''This is just to print out everything that I looked at in the layers before '''
+
 for i in range(numoflayers):
     print("Layer ", i+1)
     print("Layer Names: ",layer_names[0][i], "|", layer_names[1][i])
@@ -246,10 +358,6 @@ for i in range(numoflayers):
     print("Max Entropy: ", max_entropy[0][i], "|", max_entropy[1][i]) #number of neurons
     print("")
 
-        
- ''' Looking more into the unique states.  I think I calculated pointwise mutual information here.
- But I'm not exactly sure what the real differences are between pointwise mutual information and mutual information are. 
-If you understand what pointwise mutual information is, please share.''' 
     print("BEFORE")
     entropy_before = []
     probs_before = []
@@ -282,7 +390,8 @@ If you understand what pointwise mutual information is, please share.'''
         shan_entropy_after = shans_entropy(prob=prob_after)
 
         entropy_after.append(shan_entropy_after)
-        print(unique_freq_after, decompress, prob_after, shan_entropy_after)
+        # print(unique_freq_after, decompress, prob_after, shan_entropy_after)
+        # print("TensorState (count): ", unique_freq_after, decompress)
     
     joint_entropies = []
     joint_probs = []
@@ -299,7 +408,6 @@ If you understand what pointwise mutual information is, please share.'''
             # print(i_before+1, i_after+1)
             # print(entropy_before[i_before], entropy_after[i_after], joint_entropy, mi)
 
-    ''' Extra things to print out that might help better understand '''
     print("PointWise Mutual Information: ", sum(MI)/count)
     # print("Matches Layer Efficiency: ", sum(entropy_before)/max_entropy[0][i], sum(entropy_after)/max_entropy[1][i])
     # calc_jointentropy = (sum(entropy_before)/max_entropy[0][i])*(sum(entropy_after)/max_entropy[1][i])
@@ -307,11 +415,9 @@ If you understand what pointwise mutual information is, please share.'''
     # print("Mutual Information", layer_names[0][i], layer_names[1][i], sum_mi/count)
     print(" ")
     print(" ")
-    break
 
 
-'''This is Renyi's calculation'''
-# alpha_vals = range(0, 10000)
+
 # print("Layer Names: ", layer_names)
 # print("Number of States: ", num_ofstates)
 # print("Layer Efficiency: ", layer_eff)

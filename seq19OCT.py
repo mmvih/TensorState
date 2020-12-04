@@ -157,9 +157,6 @@ model_after = tf.keras.models.load_model(str(Path('.').joinpath('seq').joinpath(
 model_before = tf.keras.models.load_model(str(Path('.').joinpath('seq').joinpath('model.h5')), compile=True)
 efficiency_model_after = ts.build_efficiency_model(model=model_after,attach_to=['InputLayer','MaxPooling2D','Conv2D','Dense'],method='after', storage_path='./after/')
 efficiency_model_before = ts.build_efficiency_model(model=model_before,attach_to=['InputLayer','MaxPooling2D','Conv2D','Dense'],method='before', storage_path='./before/')
-# for layer in efficiency_model.efficiency_layers:
-#     print("Layer", layer)
-#     print("State Counts:", layer.state_count)
 
 # Collect the states for each layer
 print()
@@ -173,21 +170,44 @@ print('Finished in {:.3f}s!'.format(time.time() - start))
 # alpha_vals = range(0, 10000)
 
 kernel_vals = {}
+whichlayer = 0
+
+
+print("FIRST LAYER BIAS")
+firstlayerbias = (model_after.get_layer("conv_1").bias).numpy()
+
+# THIS WORKS
+# for layer in model_after.layers:
+#     try:
+#         weights = layer.get_weights()
+#         print("weight", weights[0])
+#         print("bias", weights[1])
+#     except:
+#         continue
+
 for layer in model_after.get_weights():
-    if len(layer.shape) > 1:
-        n_rows = layer.shape[0]
-        n_cols = layer.shape[1]
-        n_depths = layer.shape[2]
-        n_neurons = layer.shape[3]
-        if n_neurons == 20:
-            for row in range(n_rows):
-                for col in range(n_cols):
-                    for depth in range(n_depths):
-                        for neuron in range(n_neurons):
-                            if row == 0 and col == 0:
-                                kernel_vals['Filter ' + str(neuron + 1)] = []
-                            kernel_vals['Filter ' + str(neuron + 1)].append(layer[row][col][depth][neuron])
-    break
+    if whichlayer == 0 :
+        if len(layer.shape) > 1:
+            print(layer.shape)
+            n_rows = layer.shape[0]
+            n_cols = layer.shape[1]
+            n_depths = layer.shape[2]
+            n_neurons = layer.shape[3]
+            if n_neurons == 20:
+                for row in range(n_rows):
+                    for col in range(n_cols):
+                        for depth in range(n_depths):
+                            for neuron in range(n_neurons):
+                                if row == 0 and col == 0:
+                                    kernel_vals['Filter ' + str(neuron + 1)] = []
+                                kernel_vals['Filter ' + str(neuron + 1)].append(layer[row][col][depth][neuron])
+    else:
+        print("Second layer weights")
+        print(layer.shape)
+        break
+    whichlayer = whichlayer + 1
+
+print(kernel_vals)
 
 windowsize_r = 5
 windowsize_c = 5
@@ -206,30 +226,19 @@ inputtruefalse_series = {}
 
 inputcount = 0
 outputcount = 0
-
+pxycount = 0
+pxydict = {}
 firstkey = list(kernel_vals.keys())[0]
 for r in range(0,test_images.shape[0] - windowsize_r + 1, 1):
     for c in range(0,test_images.shape[1] - windowsize_c + 1, 1):
         inputtruefalsekey = ""
         input = test_images[r:r+windowsize_r,c:c+windowsize_c]
-        # if not inputtruefalse_series:
-        # for inputval in input.flatten():
-        #     inputtruefalsekey = ""
-        #     if inputval > 0 or (inputval > -0):
-        #         inputtruevals = inputtruevals + 1
-        #         inputtruefalsekey = inputtruefalsekey + "1"
-        #     else:
-        #         inputfalsevals = inputfalsevals + 1
-        #         inputtruefalsekey = inputtruefalsekey + "0"
-        #     if inputtruefalsekey in inputtruefalse_series.keys():
-        #         inputtruefalse_series[inputtruefalsekey] = inputtruefalse_series[inputtruefalsekey] + 1
-        #     else:
-        #         inputtruefalse_series[inputtruefalsekey] = 1
+
         truefalsekey = ""
         filtercount = 1
+        inputstring = ""
         for filter in kernel_vals:
             if filter == firstkey:
-                inputstring = ""
                 for inputval in input.flatten():
                     inputtruefalsekey = ""
                     if inputval > 0 or (inputval > -0):
@@ -245,45 +254,60 @@ for r in range(0,test_images.shape[0] - windowsize_r + 1, 1):
                     else:
                         inputtruefalse_series[inputtruefalsekey] = 1
                     inputcount = inputcount + 1
-                print("Entire Input Simplified (", r+1, c+1, ")", inputstring, " -- sum: ", np.sum(input))
-            
+                print("Entire Input ({}, {}) Simplified (before weights&bias): {}".format(r+1, c+1, inputstring))
+                print(input)
+                print("Input Sum: {}".format(np.sum(input)))
             filter = np.reshape(kernel_vals[filter], (5,5), order='C')
             output = np.multiply(input, filter).astype("float64")
-            outputsum = np.sum(output)
+            outputsum = np.sum(output) + firstlayerbias[filtercount - 1]
             if (outputsum > int(0)) or (outputsum > int(-0)):
                 truevals = truevals + 1
                 truefalsekey = truefalsekey + "1"
             else:
                 falsevals = falsevals + 1
                 truefalsekey = truefalsekey + "0"
-            print(filtercount, " Output: ", truefalsekey[-1])
+            print("\t Neuron {} Output: {} -- {}".format(filtercount, outputsum, truefalsekey[-1]))
             filtercount = filtercount + 1
-            # with open("firstlayer.txt", "a") as filelayer:
-            #     filelayer.write(str(output))
-            #     filelayer.write("OUTPUT SUM: {}".format(outputsum))
-            #     filelayer.write(" \n")
-            # filelayer.close()
-            
+
         if truefalsekey in outputtruefalse_series.keys():
             outputtruefalse_series[truefalsekey] = outputtruefalse_series[truefalsekey] + 1
         else:
             outputtruefalse_series[truefalsekey] = 1
         outputcount = outputcount + 1
-        
 
-print("INPUT")
+        pxydist = (inputstring, truefalsekey)
+        if pxydist in pxydict:
+            pxydict[pxydist] = pxydict[pxydist] + 1
+        else:
+            pxydict[pxydist] = 1
+        pxycount = pxycount + 1
+        print(" ")
+
+
+print("P(xy): DISTRIBUTION (input&output)")
+print(len(pxydict))
+print(pxycount)
+print(pxydict)
+print(" ")
+
+print("P(x): DISTRIBUTION (input)")
+
 print(len(inputtruefalse_series))
 print(inputcount)
 print(inputtruefalse_series)
 print("")
-print("OUTPUT")
+
+print("P(y): DISTRIBUTION (output)")
 print(len(outputtruefalse_series))
 print(outputcount)
 print(outputtruefalse_series)
 
+
+
+
 print()
                 
-    # hist = np.histogram(window,bins=grey_levels)
+# hist = np.histogram(window,bins=grey_levels)
 # print(model_after.get_config())
 # for layer in model_after.layers:
 # #     # if layer.name == "input":
@@ -373,7 +397,7 @@ for i in range(numoflayers):
         shan_entropy_before = shans_entropy(prob=prob_before)
 
         entropy_before.append(shan_entropy_before)
-        print(unqiue_freq_before, decompress, prob_before, shan_entropy_before)
+        print("BEFORE TENSORSTATE", unqiue_freq_before, decompress, prob_before, shan_entropy_before)
 
     entropy_after = []
     probs_after =[]
@@ -391,7 +415,7 @@ for i in range(numoflayers):
 
         entropy_after.append(shan_entropy_after)
         # print(unique_freq_after, decompress, prob_after, shan_entropy_after)
-        # print("TensorState (count): ", unique_freq_after, decompress)
+        print("TensorState (count): ", unique_freq_after, decompress)
     
     joint_entropies = []
     joint_probs = []
@@ -415,6 +439,7 @@ for i in range(numoflayers):
     # print("Mutual Information", layer_names[0][i], layer_names[1][i], sum_mi/count)
     print(" ")
     print(" ")
+    break
 
 
 

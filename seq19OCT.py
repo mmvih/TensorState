@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import math
 
-import pandas, multiprocessing, argparse, logging, matplotlib, copy, imageio
+import multiprocessing, argparse, logging, matplotlib, copy, imageio
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
 from pathlib import Path
@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 from scipy.stats import multivariate_normal
 from sklearn.feature_selection import mutual_info_classif
 from sklearn.metrics import mutual_info_score
+import pandas as pd
 
 # from keras.callbacks import LambdaCallback
 
@@ -186,28 +187,25 @@ firstlayerbias = (model_after.get_layer("conv_1").bias).numpy()
 #         continue
 
 for layer in model_after.get_weights():
-    if whichlayer == 0 :
-        if len(layer.shape) > 1:
-            print(layer.shape)
-            n_rows = layer.shape[0]
-            n_cols = layer.shape[1]
-            n_depths = layer.shape[2]
-            n_neurons = layer.shape[3]
-            if n_neurons == 20:
-                for row in range(n_rows):
-                    for col in range(n_cols):
-                        for depth in range(n_depths):
-                            for neuron in range(n_neurons):
-                                if row == 0 and col == 0:
-                                    kernel_vals['Filter ' + str(neuron + 1)] = []
-                                kernel_vals['Filter ' + str(neuron + 1)].append(layer[row][col][depth][neuron])
-    else:
-        print("Second layer weights")
+    if len(layer.shape) > 1:
         print(layer.shape)
+        n_rows = layer.shape[0]
+        n_cols = layer.shape[1]
+        n_depths = layer.shape[2]
+        n_neurons = layer.shape[3]
+        if n_neurons == 20:
+            for row in range(n_rows):
+                for col in range(n_cols):
+                    for depth in range(n_depths):
+                        for neuron in range(n_neurons):
+                            if row == 0 and col == 0:
+                                kernel_vals['Filter ' + str(neuron + 1)] = []
+                            kernel_vals['Filter ' + str(neuron + 1)].append(layer[row][col][depth][neuron])
+    else:
         break
-    whichlayer = whichlayer + 1
 
 print(kernel_vals)
+print(" ")
 
 windowsize_r = 5
 windowsize_c = 5
@@ -220,13 +218,16 @@ inputfalsevals = 0
 
 test_images = test_images.squeeze()
 print(test_images.shape)
+print(" ")
 
 outputtruefalse_series = {}
 inputtruefalse_series = {}
+inputstring_dict = {}
 
 inputcount = 0
 outputcount = 0
 pxycount = 0
+
 pxydict = {}
 firstkey = list(kernel_vals.keys())[0]
 for r in range(0,test_images.shape[0] - windowsize_r + 1, 1):
@@ -237,7 +238,9 @@ for r in range(0,test_images.shape[0] - windowsize_r + 1, 1):
         truefalsekey = ""
         filtercount = 1
         inputstring = ""
+        
         for filter in kernel_vals:
+
             if filter == firstkey:
                 for inputval in input.flatten():
                     inputtruefalsekey = ""
@@ -253,10 +256,14 @@ for r in range(0,test_images.shape[0] - windowsize_r + 1, 1):
                         inputtruefalse_series[inputtruefalsekey] = inputtruefalse_series[inputtruefalsekey] + 1
                     else:
                         inputtruefalse_series[inputtruefalsekey] = 1
-                    inputcount = inputcount + 1
-                print("Entire Input ({}, {}) Simplified (before weights&bias): {}".format(r+1, c+1, inputstring))
-                print(input)
-                print("Input Sum: {}".format(np.sum(input)))
+                inputcount = inputcount + 1
+                if inputstring in inputstring_dict.keys():
+                    inputstring_dict[inputstring] = inputstring_dict[inputstring] + 1
+                else:
+                    inputstring_dict[inputstring] = 1
+                # print("Entire Input ({}, {}) Simplified (before weights&bias): {}".format(r+1, c+1, inputstring))
+                # print(input)
+                # print("Input Sum: {}".format(np.sum(input)))
             filter = np.reshape(kernel_vals[filter], (5,5), order='C')
             output = np.multiply(input, filter).astype("float64")
             outputsum = np.sum(output) + firstlayerbias[filtercount - 1]
@@ -266,8 +273,16 @@ for r in range(0,test_images.shape[0] - windowsize_r + 1, 1):
             else:
                 falsevals = falsevals + 1
                 truefalsekey = truefalsekey + "0"
-            print("\t Neuron {} Output: {} -- {}".format(filtercount, outputsum, truefalsekey[-1]))
+            # print("\t Neuron {} Output: {} -- {}".format(filtercount, outputsum, truefalsekey[-1]))
             filtercount = filtercount + 1
+
+        # for char in inputstring:
+        pxydist = (inputstring, truefalsekey)
+        if pxydist in pxydict:
+            pxydict[pxydist] = pxydict[pxydist] + 1
+        else:
+            pxydict[pxydist] = 1
+        pxycount = pxycount + 1
 
         if truefalsekey in outputtruefalse_series.keys():
             outputtruefalse_series[truefalsekey] = outputtruefalse_series[truefalsekey] + 1
@@ -275,32 +290,133 @@ for r in range(0,test_images.shape[0] - windowsize_r + 1, 1):
             outputtruefalse_series[truefalsekey] = 1
         outputcount = outputcount + 1
 
-        pxydist = (inputstring, truefalsekey)
-        if pxydist in pxydict:
-            pxydict[pxydist] = pxydict[pxydist] + 1
-        else:
-            pxydict[pxydist] = 1
-        pxycount = pxycount + 1
-        print(" ")
+        
+        # print(" ")
 
-
+print(" ")
 print("P(xy): DISTRIBUTION (input&output)")
 print(len(pxydict))
 print(pxycount)
+for item in pxydict.keys():
+    pxydict[item] = pxydict[item]/pxycount
 print(pxydict)
 print(" ")
 
+# print("P(x): DISTRIBUTION (input)")
+
+# print(len(inputtruefalse_series))
+# print(inputcount)
+# print(inputtruefalse_series)
+# print("")
+
 print("P(x): DISTRIBUTION (input)")
 
-print(len(inputtruefalse_series))
+print(len(inputstring_dict))
 print(inputcount)
-print(inputtruefalse_series)
+for item in inputstring_dict.keys():
+    inputstring_dict[item] = inputstring_dict[item]/inputcount
+print(inputstring_dict)
 print("")
+
 
 print("P(y): DISTRIBUTION (output)")
 print(len(outputtruefalse_series))
 print(outputcount)
+for item in outputtruefalse_series.keys():
+    outputtruefalse_series[item] = outputtruefalse_series[item]/outputcount
 print(outputtruefalse_series)
+
+a = np.zeros(shape = (len(outputtruefalse_series), len(pxydict)))
+df = pd.DataFrame(a, columns=pxydict.keys(), index=outputtruefalse_series.keys())
+# df.set_index(inputstring_dict.keys())
+
+
+for joint in pxydict.keys():
+    df.at[joint[1], joint[0]] = pxydict[joint]
+print(df)
+df.plot.kde().plot()
+# ax = fig.axes
+# print("ax", ax)
+plt.xlim(left=-.005, right=.02)
+plt.ylim(bottom=0, top=20)
+plt.gca().get_legend().remove()
+plt.savefig('plotpic.png')
+
+
+"""THIS DOESN'T WORK BECAUSE IM TAKING LOG(0) SOMETIMES"""
+# no_counts = 0
+# summations = 0
+# hx = 0
+# hy = 0
+# for px in inputstring_dict.keys():
+#     for py in outputtruefalse_series.keys():
+#         joint = (px, py)
+#         log = 0
+#         # print(px, py, (px, py))
+        
+#         pxval = inputstring_dict[px]/576
+#         pyval = outputtruefalse_series[py]/576
+
+#         hxprob = pxval*math.log(pxval, 2)
+#         hx = hx + hxprob
+
+#         hyprob = pyval*math.log(pyval, 2)
+#         hy = hy + hyprob
+#         print(pxval, pyval)
+        
+        
+
+        # if joint in pxydict.keys():
+        #     # print("\t", inputstring_dict[px], outputtruefalse_series[py], pxydict[joint])
+        #     pxyval = pxydict[joint]/576
+        #     log = math.log(pxyval/(pxval*pyval), 2)
+        #     log = pxyval*log
+        #     # log = math.log(pxydict[joint]/(inputtruefalse_series[px]*outputtruefalse_series[py]), 2)
+        #     # log = pxydict[joint]*log
+        #     summations = summations + log
+        # else:
+
+        #     # print("\t", inputstring_dict[px], outputtruefalse_series[py], 0)
+        #     # print("Not here")
+        #     # print(pxval, pyval)
+        #     no_counts = no_counts + 1
+        #     # # summation = pxyval*math.log(0/(pxval*pyval),2)
+        #     # # print("DOESN'T WORK HERE", pxyval, pxval, pyval)
+        #     # log = 0.5 * math.log(.5,2)
+
+# print("Number of combinations that do not work: ", no_counts)
+# print("Mutual Information: ", summations)
+# print("Mutual Information should less than the minimum Shannon's Entropy: ", -1*hx, -1*hy)
+        
+
+# marginalx = {}
+# marginaly = {}
+# for joint in pxydict.keys():
+#     pxkey = joint[0]
+#     pykey = joint[1]
+
+
+
+    # if pxkey in marginalx.keys():
+    #     marginalx[pxkey] = marginalx[pxkey] + pxydict[joint]
+    # else:
+    #     marginalx[pxkey] = pxydict[joint]
+
+    # if pykey in marginaly.keys():
+    #     marginaly[pykey] = marginaly[pykey] + pxydict[joint]
+    # else:
+    #     marginaly[pykey] = pxydict[joint]
+
+    
+
+# print("MARGINALX")
+# print(marginalx)
+# print("MARGINALY")
+# print(marginaly)
+    # loginparen = pxydict[joint]/(inputstring_dict[pxkey]*outputtruefalse_series[pykey])
+    # log = math.log(loginparen, 2)
+    # print(joint, log)
+        
 
 
 
@@ -395,9 +511,10 @@ for i in range(numoflayers):
         prob_before = unqiue_freq_before/total_states_before
         probs_before.append(prob_before)
         shan_entropy_before = shans_entropy(prob=prob_before)
+        # print("Shannons Entropy", shan_entropy_before)
 
         entropy_before.append(shan_entropy_before)
-        print("BEFORE TENSORSTATE", unqiue_freq_before, decompress, prob_before, shan_entropy_before)
+        # print("BEFORE TENSORSTATE", unqiue_freq_before, decompress, prob_before, shan_entropy_before)
 
     entropy_after = []
     probs_after =[]
@@ -412,10 +529,11 @@ for i in range(numoflayers):
         prob_after = unique_freq_after/total_states_after
         probs_after.append(prob_after)
         shan_entropy_after = shans_entropy(prob=prob_after)
+        # print("Shannons Entropy", shan_entropy_after)
 
         entropy_after.append(shan_entropy_after)
         # print(unique_freq_after, decompress, prob_after, shan_entropy_after)
-        print("TensorState (count): ", unique_freq_after, decompress)
+        # print("TensorState (count): ", unique_freq_after, decompress)
     
     joint_entropies = []
     joint_probs = []
@@ -432,7 +550,7 @@ for i in range(numoflayers):
             # print(i_before+1, i_after+1)
             # print(entropy_before[i_before], entropy_after[i_after], joint_entropy, mi)
 
-    print("PointWise Mutual Information: ", sum(MI)/count)
+    # print("PointWise Mutual Information: ", sum(MI)/count)
     # print("Matches Layer Efficiency: ", sum(entropy_before)/max_entropy[0][i], sum(entropy_after)/max_entropy[1][i])
     # calc_jointentropy = (sum(entropy_before)/max_entropy[0][i])*(sum(entropy_after)/max_entropy[1][i])
     # print("Calculated Mutual Information for Layer: ", sum(entropy_before)/max_entropy[0][i] + sum(entropy_after)/max_entropy[1][i] - calc_jointentropy)

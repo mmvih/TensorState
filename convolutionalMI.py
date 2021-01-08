@@ -62,8 +62,8 @@ test_images = test_images/255
 train_images = train_images[..., tf.newaxis]
 test_images = test_images[..., tf.newaxis]
 
-test_images = test_images[0:10,:,:,:]
-test_labels = test_labels[0:10]
+test_images = test_images[0:100,:,:,:]
+test_labels = test_labels[0:100]
 testmin = np.amin(test_images)
 
 # print("test minimum", testmin)
@@ -159,16 +159,20 @@ print('Finished in {:.3f}s!'.format(time.time() - start))
 
 # Initialize the distributions. 
 # This is what we need in order to calculate the Mutual Information
-px_d = {}
-py_d = {}
-pxy_d = {}
+
+Mutual_info = []
 
 print()
 
 for layer in model_after.layers:
+    print("")
     if layer.name == "input":
         continue
     elif "conv" in layer.name:
+        print(layer.name)
+        px_d = {}
+        py_d = {}
+        pxy_d = {}
         # We need the weights and biases that are applied to the input
         weights = (layer.get_weights()[0]).T
         weight_shape = weights.shape
@@ -191,17 +195,19 @@ for layer in model_after.layers:
         print("Test Image Shape",test_image_shape)
         
         # Initialize the output of the convolutional layer
-        outputimage = np.zeros((test_image_shape[0] - windowsize_z + 1, test_image_shape[1] - windowsize_y + 1, test_image_shape[2] - windowsize_x + 1, num_kernels))
+        # outputimage = np.zeros((test_image_shape[0], test_image_shape[1] - windowsize_y + 1, test_image_shape[2] - windowsize_x + 1, num_kernels))
+        outputimage = np.zeros((test_image_shape[0], test_image_shape[1] - windowsize_y + 1, test_image_shape[2] - windowsize_x + 1, num_kernels))
         print("OUTPUT IMAGE SHAPE: ", outputimage.shape)
 
         
 
-        for z in range(0,test_images.shape[0] - windowsize_z + 1, 1):
+        # for z in range(0,test_images.shape[0] - windowsize_z + 1, 1):
+        for image in range(0,test_images.shape[0], 1):
             for y in range(0,test_images.shape[1] - windowsize_y + 1, 1):
                 for x in range(0,test_images.shape[2] - windowsize_x + 1, 1):
                     
                     # we are iterating through the input (1x5x5)
-                    input = test_images[z:z+windowsize_z, y:y+windowsize_y, x:x+windowsize_x]
+                    input = test_images[image, y:y+windowsize_y, x:x+windowsize_x, :]
                     flatinput = np.ravel(input)
 
                     inputlist = flatinput
@@ -227,7 +233,7 @@ for layer in model_after.layers:
                     # Every input gets mapped to 20 different outputs.
                     for kernel in kernels.keys():
                         # The input gets multiplied by 20 different kernels.  
-                        flat_kernel = np.reshape(kernels[kernel], (windowsize_z,windowsize_y,windowsize_x), order='C')
+                        flat_kernel = np.reshape(kernels[kernel], (1,windowsize_y,windowsize_x, test_images.shape[-1]), order='C')
                         output = np.multiply(input, flat_kernel).astype("float64")
                         output[output == -0] = 0
 
@@ -235,7 +241,7 @@ for layer in model_after.layers:
                         outputsum = np.sum(output) + biases[kernel - 1]
 
                         # This is how we map the input to the outputs 
-                        outputimage[z, y, x, kernel - 1] = outputsum
+                        outputimage[image, y, x, kernel - 1] = outputsum
 
                         # Heres how you figure out if each of those operation is whether a 0 or 1. 
                         if outputsum > 0:
@@ -255,27 +261,77 @@ for layer in model_after.layers:
                     else:
                         pxy_d[pxykey] = 1
 
+
         # Change the test_image.  This is what your method should return. So it can be used as an input for the next layer too.  
         test_images = outputimage
+        MI = 0
+        for i in px_d.keys():
+            for j in py_d.keys():
+                joint = (i, j)
+                if joint in pxy_d.keys():
+                    add = pxy_d[joint]*math.log(pxy_d[joint]/(px_d[i]*py_d[j]))
+                    MI = MI + add
+        print("MUTUAL INFORMATION: ", MI)
+        Mutual_info.append(MI)
+
 
     elif "batch" in layer.name:
-        print("CREATE FUNCTION FOR BATTCH: ", layer.name)
-    else: 
         print(layer.name)
-        break
+        gammas = [[layer.gamma.numpy()]]
+        betas = [[layer.beta.numpy()]]
+        imageshape = test_images.shape
+        for image in range(imageshape[0]):
+            
+            input = test_images[image,:,:,:].flatten()
+            len = input.shape
 
-print("INPUT DISTRIBUTION")
-print(px_d)
+            mean = np.sum(input)/len
+            variance = np.sum((input - mean)**2)/len
 
-print("OUTPUT DISTRIBUTION")
-outputcount = 0
-for key in py_d.keys():
-    outputcount = outputcount + py_d[key]
-print("OUTPUT COUNT", outputcount)
-print(py_d)
+            input = ((input - mean)/math.sqrt(variance + layer.epsilon))
+            input = np.reshape(input, imageshape[1:], order='C')
+            input = input * gammas + betas
+            test_images[image, :, :, :] = input
 
-print("INPUT AND OUTPUT DISTRIBUTION")
-print(pxy_d)
+    elif "max" in layer.name: 
+        print(layer.name)
+        pool_size = layer.pool_size
+        windowsize_x = pool_size[1]
+        windowsize_y = pool_size[0]
+
+        imageshape = test_images.shape
+        print("MAX POOL LAYER IMAGESHAPE", imageshape)
+        outputimage = np.zeros((imageshape[0], int(imageshape[1]/windowsize_y), int(imageshape[2]/windowsize_x), imageshape[-1]))
+        print("OUTPUTIMAGE SHAPE: ", outputimage.shape)
+
+        for image in range(imageshape[0]):
+            input = test_images[image,:,:,:]
+            inputshape = input.shape
+            for y in range(0, inputshape[0], windowsize_y):
+                for x in range(0, inputshape[1], windowsize_x):
+                    inp = input[y:y+windowsize_y, x:x+windowsize_x]
+                    out = np.max(inp, axis=(0,1))
+                    outputimage[image,int(y/windowsize_y), int(x/windowsize_x),:] = out
+        test_images = outputimage
+        print(test_images.shape)
+    else:
+        print(layer.name)
+        print(Mutual_info)
+
+
+
+# print("INPUT DISTRIBUTION")
+# print(px_d)
+
+# print("OUTPUT DISTRIBUTION")
+# outputcount = 0
+# for key in py_d.keys():
+#     outputcount = outputcount + py_d[key]
+# print("OUTPUT COUNT", outputcount)
+# print(py_d)
+
+# print("INPUT AND OUTPUT DISTRIBUTION")
+# print(pxy_d)
                         
 
 # layerinfo = []

@@ -160,7 +160,8 @@ print('Finished in {:.3f}s!'.format(time.time() - start))
 # Initialize the distributions. 
 # This is what we need in order to calculate the Mutual Information
 
-Mutual_info = []
+mutual_info = []
+normalized_mutual_info = []
 
 print()
 
@@ -173,6 +174,7 @@ for layer in model_after.layers:
         px_d = {}
         py_d = {}
         pxy_d = {}
+        
         # We need the weights and biases that are applied to the input
         weights = (layer.get_weights()[0]).T
         weight_shape = weights.shape
@@ -193,6 +195,8 @@ for layer in model_after.layers:
         test_image_shape = test_images.shape
         print("WINDOW SIZES (x,y,z): ", windowsize_x, windowsize_y, windowsize_z)
         print("Test Image Shape",test_image_shape)
+
+        dist_count = test_image_shape[0]*test_image_shape[1]*test_image_shape[2]
         
         # Initialize the output of the convolutional layer
         # outputimage = np.zeros((test_image_shape[0], test_image_shape[1] - windowsize_y + 1, test_image_shape[2] - windowsize_x + 1, num_kernels))
@@ -222,9 +226,9 @@ for layer in model_after.layers:
 
                     # add input to the distribution
                     if inputstring in px_d.keys():
-                        px_d[inputstring] = px_d[inputstring] + 1
+                        px_d[inputstring] = px_d[inputstring] + 1/dist_count
                     else:
-                        px_d[inputstring] = 1
+                        px_d[inputstring] = 1/dist_count
                     
                     # every input gets mapped to 20 different outputs, which is a series of 0 and 1.  
                     outputstring = ""
@@ -250,29 +254,61 @@ for layer in model_after.layers:
                             outputstring = outputstring + str(0)
 
                     if outputstring in py_d.keys():
-                        py_d[outputstring] = py_d[outputstring] + 1
+                        py_d[outputstring] = py_d[outputstring] + 1/dist_count
                     else:
-                        py_d[outputstring] = 1
+                        py_d[outputstring] = 1/dist_count
 
                     # Create a distribution of how each input gets mapped to 20 different outputs. 
                     pxykey = (inputstring, outputstring)
                     if pxykey in pxy_d.keys():
-                        pxy_d[pxykey] = pxy_d[pxykey] + 1
+                        pxy_d[pxykey] = pxy_d[pxykey] + 1/dist_count
                     else:
-                        pxy_d[pxykey] = 1
+                        pxy_d[pxykey] = 1/dist_count
 
 
         # Change the test_image.  This is what your method should return. So it can be used as an input for the next layer too.  
         test_images = outputimage
+        # MI = 0
+        # for i in px_d.keys():
+        #     for j in py_d.keys():
+        #         joint = (i, j)
+        #         if joint in pxy_d.keys():
+        #             add = pxy_d[joint]*math.log2(pxy_d[joint]/(px_d[i]*py_d[j]))
+        #             MI = MI + add
+        # print("MUTUAL INFORMATION: ", MI)
+        # Mutual_info.append(MI)
+        
+        shannons_input = 0
+        for shan in px_d.keys():
+            shannons_input = shannons_input + px_d[shan]*math.log2(px_d[shan])
+        shannons_input = shannons_input * -1
+
+        shannons_output = 0
+        for shan in py_d.keys():
+            shannons_output = shannons_output + py_d[shan]*math.log2(py_d[shan])
+        shannons_output = shannons_output * -1
+
+        print("INPUT DISTRIBUTION")
+        print(px_d)
+
+        print("OUTPUT DISTRIBTUION")
+        print(py_d)
+
+        print("INPUT AND OUTPUT DISTRIBUTION")
+        print(pxy_d)
+
         MI = 0
-        for i in px_d.keys():
-            for j in py_d.keys():
-                joint = (i, j)
-                if joint in pxy_d.keys():
-                    add = pxy_d[joint]*math.log(pxy_d[joint]/(px_d[i]*py_d[j]))
-                    MI = MI + add
+        for ij in pxy_d.keys():
+            i = ij[0]
+            j = ij[1]
+            add = pxy_d[ij]*math.log2(pxy_d[ij]/(px_d[i]*py_d[j]))
+            MI = MI + add
+        norm_MI = 2*MI/(shannons_input + shannons_output)
+        mutual_info.append(MI)
+        normalized_mutual_info.append(norm_MI)
         print("MUTUAL INFORMATION: ", MI)
-        Mutual_info.append(MI)
+
+        
 
 
     elif "batch" in layer.name:
@@ -316,7 +352,8 @@ for layer in model_after.layers:
         print(test_images.shape)
     else:
         print(layer.name)
-        print(Mutual_info)
+        print("MUTUAL INFORMATION", mutual_info)
+        print("NORMALIZED MUTUAL INFORMATION", normalized_mutual_info)
 
 
 
@@ -332,7 +369,6 @@ for layer in model_after.layers:
 
 # print("INPUT AND OUTPUT DISTRIBUTION")
 # print(pxy_d)
-                        
 
 # layerinfo = []
 # num_ofstates = [[], []]
